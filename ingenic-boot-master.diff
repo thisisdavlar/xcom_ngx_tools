@@ -1,0 +1,132 @@
+diff -ur ingenic-boot-master-orig/ingenic-boot ingenic-boot-master/ingenic-boot
+--- ingenic-boot-master-orig/ingenic-boot	2012-11-19 14:20:00.000000000 -0800
++++ ingenic-boot-master/ingenic-boot	2013-01-11 17:52:45.669729074 -0800
+@@ -4,7 +4,7 @@
+ export LD_LIBRARY_PATH=$TOPPATH/lib
+ README="$TOPPATH/README"
+ 
+-ARGS=`getopt -a -o h -l probe,config:,mbr:,boot:,system:,data:,check,help -- "$@"`
++ARGS=`getopt -a -o h -l probe,boot:,bootloader:,kernel:,rootfs:,dump:,check,help -- "$@"`
+ [ $? -ne 0 ] && cat "$README" && exit
+ #set -- "${ARGS}"
+ eval set -- "${ARGS}"
+@@ -38,6 +38,10 @@
+ 		check="yes"
+ 		exit="no"
+ 		;;
++	--dump)
++		dump=$2
++		exit="no"
++		;;
+ 	-h|--help)
+ 		exit="no"
+ 		cat "$README" && exit
+@@ -94,6 +98,11 @@
+     $TOPPATH/bin/stage2_cmd_tool sdif="$rootfs" || exit
+ fi
+ 
++if [ -n "$dump" ]; then
++    echo
++    $TOPPATH/bin/stage2_cmd_tool sdof="$dump" || exit
++fi
++
+ $TOPPATH/bin/stage2_cmd_tool reboot || exit
+ 
+ echo
+diff -ur ingenic-boot-master-orig/source/stage2_cmd_tool/stage2_main.c ingenic-boot-master/source/stage2_cmd_tool/stage2_main.c
+--- ingenic-boot-master-orig/source/stage2_cmd_tool/stage2_main.c	2012-11-19 14:20:00.000000000 -0800
++++ ingenic-boot-master/source/stage2_cmd_tool/stage2_main.c	2013-01-11 21:22:10.901697874 -0800
+@@ -225,6 +225,18 @@
+ 		return sd_card_program(ingenic_dev, addr, filename, check);
+ 	}
+ 
++	if (strncmp(argv[1], "sdof=", 3) == 0) {
++		/* filename@blocks */
++		argv[1] += 5;
++
++		char *filename = strtok(argv[1], "@#");
++		unsigned int blocks = strtoul(strtok(NULL, "@#"), NULL, 0);
++
++		dev_init();
++
++		return sd_card_dump(ingenic_dev, filename, blocks);
++        }
++
+ helpmsg:
+ 	printf("Command of this tool:\n"
+ 	       "	config=hand.bin	: configure stage2 function\n"
+@@ -232,7 +244,10 @@
+ 	       "	sdinit		: init sd function\n"
+ 	       "	sdif=filename@addr#check\n"
+ 	       "			: download file to specify addr of sd card\n"
+-	       "			  check=0 or 1\n");
++	       "			  check=0 or 1\n"
++	       "        sdof=filename@blocks\n"
++	       "                        : dump blocks from sd card to filename\n");
++
+ 
+ 	exit (0);
+ }
+diff -ur ingenic-boot-master-orig/source/stage2_cmd_tool/stage2_sd.c ingenic-boot-master/source/stage2_cmd_tool/stage2_sd.c
+--- ingenic-boot-master-orig/source/stage2_cmd_tool/stage2_sd.c	2012-11-19 14:20:00.000000000 -0800
++++ ingenic-boot-master/source/stage2_cmd_tool/stage2_sd.c	2013-01-11 22:03:23.577691917 -0800
+@@ -283,3 +283,45 @@
+ out0:
+ 	return -1;
+ }
++
++int sd_card_dump(struct ingenic_dev *ingenic_dev, char *file_path, unsigned int blocks)
++{
++	unsigned int block_addr = 0;
++	FILE *out;
++	char *data;
++	int retval;
++	int read_amount;
++
++	out = fopen(file_path, "w");
++	if (out == NULL) {
++		fprintf(stderr, "Error - can't open file '%s': %s\n",
++			file_path, strerror(errno));
++		exit(1);
++	}
++
++	data = malloc(SD_BLOCK_SIZE * SD_MAX_BLOCK_NUM);
++	printf("dumping sd card to %s\n", file_path);
++
++	while(block_addr < blocks) {
++		if(blocks - block_addr >= SD_MAX_BLOCK_NUM) {
++			read_amount = SD_MAX_BLOCK_NUM;
++		} else {
++			read_amount = blocks - block_addr;
++		}
++		retval = sd_card_read(ingenic_dev, block_addr, read_amount, data);
++
++		if(retval) {
++			free(data);
++			return -1;
++		}
++
++		fwrite(data, SD_BLOCK_SIZE, read_amount, out);
++		block_addr += read_amount;
++		printf("  wrote %u bytes %.1f%%\r", block_addr * SD_BLOCK_SIZE, (double)block_addr/blocks * 100.0);
++		fflush(stdout);
++	}
++	fclose(out);
++	free(data);
++	printf("\ndone\n");
++	return -1;
++}
+diff -ur ingenic-boot-master-orig/source/basic_cmd_tool/basic_cmd_tool.c ingenic-boot-master/source/basic_cmd_tool/basic_cmd_tool.c
+--- ingenic-boot-master-orig/source/basic_cmd_tool/basic_cmd_tool.c       2012-11-19 14:20:00.000000000 -0800
++++ ingenic-boot-master/source/basic_cmd_tool/basic_cmd_tool.c    2013-01-11 17:52:45.669729074 -0800
+
+@@ -122,7 +122,7 @@
+ 
+ 		buf = malloc(size);
+ 
+-		int fd = open(argv[1], O_CREAT | O_WRONLY | O_TRUNC);
++		int fd = open(argv[1], O_CREAT | O_WRONLY | O_TRUNC,S_IRUSR|S_IWUSR);
+ 
+ 		if (fd < 0) {
+ 			fprintf(stderr, "Error - can't create file '%s': %s\n",
+

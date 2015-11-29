@@ -1,0 +1,117 @@
+#!/bin/sh
+
+[ -z "$TOPPATH" ] && export TOPPATH="/usr/local/lib/ingenic-boot"
+[ ! -d "$TOPPATH" ] && export TOPPATH="/usr/lib/ingenic-boot"
+[ ! -d "$TOPPATH" ] && export TOPPATH=$(cd "$(dirname "$0")"; pwd)
+export LD_LIBRARY_PATH=$TOPPATH/lib
+README="$TOPPATH/README"
+
+ARGS=`getopt -a -o h -l probe,config:,mbr:,boot:,system:,data:,check,help -- "$@"`
+[ $? -ne 0 ] && cat "$README" && exit
+#set -- "${ARGS}"
+eval set -- "${ARGS}"
+
+exit="yes"
+
+while true
+do
+	case "$1" in
+	--probe)
+		probe="yes"
+		exit="no"
+		;;
+	--config)
+		config="$2"
+		exit="no"
+		;;
+	--mbr)
+		mbr="$2@0x00000000"
+		exit="no"
+		;;
+	--boot)
+		boot="$2@0x00000200"
+		exit="no"
+		;;
+	--system)
+		system="$2@0x00004000"
+		exit="no"
+		;;
+	--data)
+		data="$2@0x19000000"
+		exit="no"
+		;;
+	--check)
+		check="yes"
+		exit="no"
+		;;
+	-h|--help)
+		exit="no"
+		cat "$README" && exit
+		;;
+	--)
+		shift
+		break
+		;;
+	esac
+shift
+done
+
+[ "$exit" = "yes" ] && cat "$README" && exit
+
+if [ "$probe" = "yes" ]; then
+    echo "probe only"
+    $TOPPATH/bin/basic_cmd_tool probe
+    exit
+fi
+
+if [ -z "$config" ]; then
+    configfile=$(readlink ${TOPPATH}/fw/current.cfg)
+    config=${configfile%.cfg}
+fi
+echo "Using board configuration: ${config}"
+
+if [ "$check" = "yes" ]; then
+    [ -n "$mbr" ] && mbr="$mbr#1"
+    [ -n "$boot" ] && boot="$boot#1"
+    [ -n "$system" ] && system="$system#1"
+    [ -n "$data" ] && data="$data#1"
+else
+    [ -n "$mbr" ] && mbr="$mbr#0"
+    [ -n "$boot" ] && boot="$boot#0"
+    [ -n "$system" ] && system="$system#0"
+    [ -n "$data" ] && data="$data#0"
+fi
+
+$TOPPATH/tool/patch_fw.sh ${config} || exit
+
+$TOPPATH/tool/down_fw.sh ${config} || exit
+
+echo
+$TOPPATH/bin/stage2_cmd_tool config="$TOPPATH/fw/hand-${config}.bin" || exit
+
+$TOPPATH/bin/stage2_cmd_tool sdinit || exit
+
+if [ -n "$mbr" ]; then
+    echo
+    $TOPPATH/bin/stage2_cmd_tool sdif="$mbr" || exit
+fi
+
+if [ -n "$boot" ]; then
+    echo
+    $TOPPATH/bin/stage2_cmd_tool sdif="$boot" || exit
+fi
+
+if [ -n "$system" ]; then
+    echo
+    $TOPPATH/bin/stage2_cmd_tool sdif="$system" || exit
+fi
+
+if [ -n "$data" ]; then
+    echo
+    $TOPPATH/bin/stage2_cmd_tool sdif="$data" || exit
+fi
+
+$TOPPATH/bin/stage2_cmd_tool reboot || exit
+
+echo
+echo "Done."

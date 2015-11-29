@@ -1,0 +1,38 @@
+ingenic-boot is a linux port of Ingenic usb boot tools.
+using the same firmware of windows version.
+
+Build Requirements: libusb-dev, libconfuse-dev, simply install on debian:
+	sudo apt-get install libusb-dev libconfuse-dev
+
+To compile, simply type:
+	make
+
+To access the ingenic hardware without being root:
+	sudo cp tool/99-IngenicBoot.rules /etc/udev/rules.d
+
+Command line options:
+	--help or -h		: this help screen
+	--probe			: only get device CPU infomation
+	--config=<board>	: hardware configuration
+	--mbr=<filename>	: download the master boot record to device
+	--boot=<filename>	: download the boot loader to device
+	--system=<filename>	: download the system image to device
+	--data=<filename>	: download the data image to device
+	--check			: read data back and check
+
+To support a new board, create a configuration file "fw/<board>.cfg" for your
+board. You can make it the default configuration by symlinking "fw/current.cfg"
+to your "<board>.cfg".
+
+You can define the environment variables IBBUS and/or IBDEV to consider only
+devices on a particular bus or with a particular device number. Note that these
+are strings, so make sure you include leading zeroes.
+
+Current version 2.0, future version will support NAND operation, GPIO test,
+etc.. and do more test.
+Check GIT repository for version log.
+
+ingenic-boot is copyright (C) 2012 by Duke Fong <duke@dukelec.com>, and is
+licensed under the terms of the GNU General Public License version 3.
+See the file COPYING for more information.
+
